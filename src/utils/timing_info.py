@@ -45,8 +45,8 @@ class TimingInfo:
             if not isinstance(onfi_data, dict):
                 return ""
             # Just display st and sd if they exist
-            if 'st' in onfi_data and 'sd' in onfi_data:
-                return f"[{self.source.value}] {timing_str} st={onfi_data['st']} sd={onfi_data['sd']}"
+            if 'st' in onfi_data:
+                return f"[{self.source.value}] {timing_str} st={onfi_data['st']}"
             return ""
 
         # For SEI, add wallclock if available
