@@ -41,7 +41,7 @@ class StreamManager:
                     # Non-blocking queue check
                     while not queue.empty():
                         timing_info = queue.get_nowait()
-                        logger.info(f"Stream timing info: {timing_info}")
+                        logger.info(f"Stream {url}: {timing_info}")
                 except Exception as e:
                     logger.error(f"Error processing queue for {url}: {str(e)}")
             

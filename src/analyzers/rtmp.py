@@ -5,6 +5,7 @@ from ..stream_analyzer import StreamAnalyzer
 from ..utils.amf_analyzer import AMFAnalyzer
 from ..utils.timing_info import TimingInfo, TimingSource
 from typing import Optional
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +21,11 @@ class RTMPStreamAnalyzer(StreamAnalyzer):
             # Try to extract onFI data from AMF packet
             onfi_data = self.amf_analyzer.extract_onfi_data(data)
             
-            if onfi_data:
+            if onfi_data and isinstance(onfi_data.get('data', None), dict):
                 return TimingInfo(
                     stream_url=self.url,
-                    timestamp=packet.pts * video_time_base if packet.pts else 0,
-                    stream_time=packet.pts * video_time_base if packet.pts else 0,
+                    timestamp=0,  # Not used
+                    stream_time=0,  # Not used
                     dts=packet.dts,
                     pts=packet.pts,
                     source=TimingSource.AMF_ONFI,

@@ -125,17 +125,23 @@ class StreamAnalyzer(abc.ABC):
             if nal_unit.is_sei:
                 sei_data = nal_unit.parse_sei()
                 
-                timing_info = TimingInfo(
-                    stream_url=self.url,
-                    timestamp=current_time,
-                    stream_time=stream_time,
-                    dts=packet.dts,
-                    pts=packet.pts,
-                    duration=packet.duration,
-                    source=TimingSource.H264_SEI,
-                    extra_data={'sei_data': sei_data}
-                )
-                
-                results.append(timing_info)
+                # Extract timing info from SEI payloads
+                for payload in sei_data.get('payloads', []):
+                    if payload.get('type') == 'pic_timing' and 'clock_timestamps' in payload:
+                        # Get first clock timestamp that has timing data
+                        for cts in payload['clock_timestamps']:
+                            if 'hours' in cts:
+                                timing_info = TimingInfo(
+                                    stream_url=self.url,
+                                    timestamp=current_time,
+                                    stream_time=stream_time,
+                                    dts=packet.dts,
+                                    pts=packet.pts,
+                                    duration=packet.duration,
+                                    source=TimingSource.H264_SEI,
+                                    extra_data={'sei_payload': cts}
+                                )
+                                results.append(timing_info)
+                                break
 
         return results
