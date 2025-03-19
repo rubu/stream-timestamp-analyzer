@@ -5,10 +5,27 @@ import time
 from datetime import datetime
 from multiprocessing import Queue, get_context, Value
 from typing import Optional, Dict, Iterator, List
-from nal_unit import NALUnit
+from .nal_unit import NALUnit
+from .utils.timing_info import TimingInfo, TimingSource
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def create_analyzer(url: str) -> 'StreamAnalyzer':
+    """Create appropriate analyzer based on stream URL"""
+    # Import analyzers here to avoid circular imports
+    from .analyzers.rtmp import RTMPStreamAnalyzer
+    from .analyzers.flv import FLVStreamAnalyzer
+    from .analyzers.hls import HLSStreamAnalyzer
+    
+    if url.startswith('rtmp://'):
+        return RTMPStreamAnalyzer(url)
+    elif url.endswith('.flv') or ('flv?' in url and url.startswith('http')):
+        return FLVStreamAnalyzer(url)
+    elif url.endswith('.m3u8') or ('m3u8?' in url and url.startswith('http')):
+        return HLSStreamAnalyzer(url)
+    else:
+        raise ValueError(f"Unsupported stream URL format: {url}")
 
 class StreamAnalyzer(abc.ABC):
     def __init__(self, url: str):
@@ -94,8 +111,7 @@ class StreamAnalyzer(abc.ABC):
             except Exception as e2:
                 logger.error(f"Failed to extract NAL units: {e2}")
 
-    def process_video_packet(self, packet: av.packet.Packet, stream_type: str, 
-                           extra_info: Dict = None) -> List[Dict]:
+    def process_video_packet(self, packet: av.packet.Packet, stream_type: str) -> List[TimingInfo]:
         """Common video packet processing for all analyzers"""
         if not packet.dts:
             return []
@@ -109,20 +125,17 @@ class StreamAnalyzer(abc.ABC):
             if nal_unit.is_sei:
                 sei_data = nal_unit.parse_sei()
                 
-                frame_info = {
-                    'stream_url': self.url,
-                    'timestamp': current_time,
-                    'stream_time': stream_time,
-                    'dts': packet.dts,
-                    'pts': packet.pts,
-                    'duration': packet.duration,
-                    'stream_type': stream_type,
-                    'sei_data': sei_data
-                }
-
-                if extra_info:
-                    frame_info.update(extra_info)
+                timing_info = TimingInfo(
+                    stream_url=self.url,
+                    timestamp=current_time,
+                    stream_time=stream_time,
+                    dts=packet.dts,
+                    pts=packet.pts,
+                    duration=packet.duration,
+                    source=TimingSource.H264_SEI,
+                    extra_data={'sei_data': sei_data}
+                )
                 
-                results.append(frame_info)
+                results.append(timing_info)
 
         return results

@@ -2,7 +2,7 @@ import logging
 import sys
 import time
 from typing import List, Dict
-from stream_analyzer import create_analyzer, StreamAnalyzer
+from .stream_analyzer import create_analyzer, StreamAnalyzer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

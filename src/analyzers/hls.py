@@ -3,7 +3,7 @@ import logging
 import time
 import m3u8
 from multiprocessing import Queue
-from typing import Dict, Iterator
+from typing import Dict, Iterator, Optional
 from ..stream_analyzer import StreamAnalyzer
 
 logger = logging.getLogger(__name__)

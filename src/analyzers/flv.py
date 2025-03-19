@@ -1,7 +1,10 @@
 import av
 import logging
 from multiprocessing import Queue
+from typing import Optional
 from ..stream_analyzer import StreamAnalyzer
+from ..utils.amf_analyzer import AMFAnalyzer
+from ..utils.timing_info import TimingInfo, TimingSource
 
 logger = logging.getLogger(__name__)
 
@@ -12,20 +15,30 @@ class FLVStreamAnalyzer(StreamAnalyzer):
     TAG_TYPE_VIDEO = 9
     TAG_TYPE_SCRIPT = 18
 
-    def process_data_packet(self, packet: av.packet.Packet, video_time_base: float) -> dict:
+    def __init__(self, url: str):
+        super().__init__(url)
+        self.amf_analyzer = AMFAnalyzer()
+
+    def process_data_packet(self, packet: av.packet.Packet, video_time_base: float) -> Optional[TimingInfo]:
         """Process FLV data/script packet that might contain SEI/ONFI data"""
         try:
             data = bytes(packet)
-            # FLV script data typically starts with a string length
-            # We can parse it here if needed, for now just return the raw data
-            return {
-                'stream_url': self.url,
-                'timestamp': packet.pts * video_time_base if packet.pts else 0,
-                'dts': packet.dts,
-                'pts': packet.pts,
-                'stream_type': 'flv_data',
-                'data': data.hex()
-            }
+            # Try to extract onFI data from AMF packet
+            onfi_data = self.amf_analyzer.extract_onfi_data(data)
+            
+            if onfi_data:
+                return TimingInfo(
+                    stream_url=self.url,
+                    timestamp=packet.pts * video_time_base if packet.pts else 0,
+                    stream_time=packet.pts * video_time_base if packet.pts else 0,
+                    dts=packet.dts,
+                    pts=packet.pts,
+                    source=TimingSource.AMF_ONFI,
+                    extra_data=onfi_data
+                )
+            
+            return None  # Skip non-onFI packets
+
         except Exception as e:
             logger.error(f"Failed to process data packet: {e}")
             return None
@@ -61,13 +74,13 @@ class FLVStreamAnalyzer(StreamAnalyzer):
 
             for packet in container.demux(*streams_to_demux):
                 if packet.stream == video_stream:
-                    frame_infos = self.process_video_packet(packet, 'flv')
-                    for frame_info in frame_infos:
-                        queue.put(frame_info)
+                    timing_infos = self.process_video_packet(packet, 'flv')
+                    for timing_info in timing_infos:
+                        queue.put(timing_info)
                 elif packet.stream == data_stream:
-                    data_info = self.process_data_packet(packet, video_time_base)
-                    if data_info:
-                        queue.put(data_info)
+                    timing_info = self.process_data_packet(packet, video_time_base)
+                    if timing_info:
+                        queue.put(timing_info)
 
         except Exception as e:
             logger.error(f"Error processing FLV stream {self.url}: {str(e)}")
