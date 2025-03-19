@@ -1,64 +1,133 @@
 # Stream Timestamp Analyzer
 
-A Python tool for analyzing timing information from various types of media streams (RTMP, HLS, etc.).
+A Python tool for analyzing video streams (RTMP, HLS, FLV) and extracting timing information from H.264 SEI messages and AMF metadata.
 
 ## Features
 
-- Support for multiple stream types (RTMP, HLS)
-- Concurrent stream analysis using multiprocessing
-- Extensible architecture for adding new stream types
-- Real-time PTS (Presentation Timestamp) extraction
-- Timestamp correlation between streams
+- Support for multiple stream types:
+  - RTMP streams
+  - HLS streams (m3u8)
+  - FLV over HTTP
+- Extracts timing information from:
+  - H.264 SEI messages in video frames
+  - AMF onFI messages in data streams
+- Multi-process architecture for parallel stream analysis
+- Debug mode support with remote debugging capabilities
+- Structured timing information output with source tracking
 
 ## Requirements
 
-- Python 3.7+
-- FFmpeg installed on your system
+- Python 3.8+
+- PyAV (for video stream handling)
+- m3u8 (for HLS playlist parsing)
+- debugpy (for remote debugging support)
 
 ## Installation
 
-1. Clone this repository
-2. Install the required Python packages:
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/stream-timestamp-analyzer.git
+cd stream-timestamp-analyzer
+```
+
+2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Usage
 
-1. Modify the stream URLs in `src/main.py`:
-```python
-streams = [
-    "rtmp://your-rtmp-server/live/stream1",
-    "http://your-hls-server/stream/playlist.m3u8"
-]
-```
+### Basic Usage
 
-2. Run the analyzer:
+Run the analyzer with one or more stream URLs:
+
 ```bash
-python src/main.py
+python -m src.main rtmp://example.com/live/stream1 http://example.com/stream2.flv
 ```
 
-The program will create a separate process for each stream and continuously log timing information.
+### Debug Mode
 
-## Adding New Stream Types
+Run with debugging enabled:
 
-1. Create a new class that inherits from `StreamAnalyzer`
-2. Implement the `analyze_stream` method
-3. Add detection logic to the `create_analyzer` factory function
+```bash
+python -m src.main --debug rtmp://example.com/live/stream
+```
 
-## Output Format
+Each analyzer process will wait for a debugger to attach on a unique port starting from 5678.
 
-The timing information is output in the following format:
-```python
+### VS Code Debugging
+
+1. Create a `.vscode/launch.json` configuration:
+```json
 {
-    'stream_url': 'url of the stream',
-    'timestamp': 'current system timestamp',
-    'pts': 'presentation timestamp',
-    'stream_type': 'type of stream (rtmp/hls)',
-    # Additional stream-specific information
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Attach to Stream Analyzer",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "justMyCode": false
+        }
+    ]
 }
 ```
 
+2. Run the script with `--debug`
+3. Use the VS Code debugger to attach to the process
+
+## Architecture
+
+The analyzer uses a multi-process architecture where each stream is analyzed in a separate process:
+
+- `StreamManager`: Manages multiple stream analyzers
+- `StreamAnalyzer`: Base class for stream analysis
+  - `RTMPStreamAnalyzer`: Handles RTMP streams
+  - `HLSStreamAnalyzer`: Handles HLS streams
+  - `FLVStreamAnalyzer`: Handles FLV streams
+
+### Timing Information
+
+Timing data is extracted from two sources:
+1. H.264 SEI messages in video frames
+2. AMF onFI messages in data streams
+
+The `TimingInfo` class provides a structured format for timing data:
+```python
+@dataclass
+class TimingInfo:
+    stream_url: str
+    timestamp: float    # System timestamp
+    stream_time: float  # Stream time in seconds
+    pts: Optional[int]  # Presentation timestamp
+    dts: Optional[int]  # Decoding timestamp
+    duration: Optional[int]
+    source: TimingSource
+    extra_data: Optional[Dict[str, Any]]
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
 ## License
 
-MIT 
+[Your License Here] 
