@@ -3,29 +3,34 @@ import av
 import logging
 import time
 from datetime import datetime
-from multiprocessing import Process, Queue
+from multiprocessing import Queue, get_context, Value
 import m3u8
-import requests
 from typing import Optional, Dict, Iterator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class StreamAnalyzer(abc.ABC):
+
     def __init__(self, url: str):
         self.url = url
         self.process = None
         self.queue = None
+        self.mp_context = get_context('spawn')
 
     @abc.abstractmethod
     def analyze_stream(self, queue: Queue):
         """Abstract method to analyze stream and send timing info to queue"""
         pass
 
+    def _run_process(self, queue: Queue):
+        """Process entry point with optional debugging"""
+        self.analyze_stream(queue)
+
     def start(self):
         """Start the analysis process"""
-        self.queue = Queue()
-        self.process = Process(target=self.analyze_stream, args=(self.queue,))
+        self.queue = self.mp_context.Queue()
+        self.process = self.mp_context.Process(target=self._run_process, args=(self.queue,))
         self.process.start()
         return self.queue
 
@@ -167,6 +172,90 @@ class RTMPStreamAnalyzer(StreamAnalyzer):
             if 'container' in locals():
                 container.close()
 
+class FLVStreamAnalyzer(StreamAnalyzer):
+    FLV_HEADER_SIZE = 9
+    PREVIOUS_TAG_SIZE = 4
+    TAG_HEADER_SIZE = 11
+    TAG_TYPE_VIDEO = 9
+
+    def extract_nals_from_packet(self, packet: av.packet.Packet) -> Iterator[NALUnit]:
+        """Extract NAL units from AVC/H.264 packet"""
+        data = packet.to_bytes()
+        
+        # Look for NAL unit start codes (0x000001 or 0x00000001)
+        i = 0
+        while i < len(data):
+            # Find start code
+            start = data.find(b'\x00\x00\x01', i)
+            if start == -1:
+                break
+            
+            # Skip start code
+            start += 3
+            
+            # Find next start code
+            next_start = data.find(b'\x00\x00\x01', start)
+            if next_start == -1:
+                # Last NAL unit in packet
+                nal_data = data[start:]
+                if nal_data:
+                    yield NALUnit(nal_data)
+                break
+            else:
+                nal_data = data[start:next_start]
+                if nal_data:
+                    yield NALUnit(nal_data)
+                i = next_start
+
+    def analyze_stream(self, queue: Queue):
+        try:
+            # Open FLV stream directly with PyAV
+            container = av.open(self.url)
+            video_stream = None
+            
+            # Find video stream
+            for stream in container.streams:
+                if stream.type == 'video':
+                    video_stream = stream
+                    break
+            
+            if not video_stream:
+                raise ValueError("No video stream found")
+
+            # Configure video stream to not drop packets
+            video_stream.codec_context.skip_frame = 'NONE'
+
+            for packet in container.demux(video_stream):
+                if not packet.dts:
+                    continue
+
+                current_time = datetime.now().timestamp()
+                stream_time = float(packet.dts * packet.time_base)
+                
+                # Process NAL units in packet
+                for nal_unit in self.extract_nals_from_packet(packet):
+                    if nal_unit.is_sei:
+                        sei_data = nal_unit.parse_sei()
+                        
+                        frame_info = {
+                            'stream_url': self.url,
+                            'timestamp': current_time,
+                            'stream_time': stream_time,
+                            'dts': packet.dts,
+                            'pts': packet.pts,
+                            'duration': packet.duration,
+                            'stream_type': 'flv',
+                            'sei_data': sei_data
+                        }
+                        
+                        queue.put(frame_info)
+
+        except Exception as e:
+            logger.error(f"Error processing FLV stream {self.url}: {str(e)}")
+        finally:
+            if 'container' in locals():
+                container.close()
+
 class HLSStreamAnalyzer(StreamAnalyzer):
     def analyze_segment(self, segment_url: str, segment_info: Dict) -> Iterator[Dict]:
         """Analyze a single HLS segment using PyAV"""
@@ -264,6 +353,8 @@ def create_analyzer(url: str) -> StreamAnalyzer:
     """Factory function to create appropriate stream analyzer based on URL"""
     if url.startswith('rtmp://'):
         return RTMPStreamAnalyzer(url)
+    elif url.endswith('.flv') or ('flv?' in url and url.startswith('http')):
+        return FLVStreamAnalyzer(url)
     elif '.m3u8' in url or url.startswith('http'):  # Simple HLS detection
         return HLSStreamAnalyzer(url)
     else:
