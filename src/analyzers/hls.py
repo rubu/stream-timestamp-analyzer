@@ -9,6 +9,11 @@ from ..stream_analyzer import StreamAnalyzer
 logger = logging.getLogger(__name__)
 
 class HLSStreamAnalyzer(StreamAnalyzer):
+    """Analyzer for HLS streams"""
+    
+    def __init__(self, url: str, ocr_enabled: bool = False):
+        super().__init__(url, ocr_enabled)
+
     def analyze_segment(self, segment_url: str, segment_info: Dict) -> Iterator[Dict]:
         """Analyze a single HLS segment using PyAV"""
         try:

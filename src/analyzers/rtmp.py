@@ -10,8 +10,10 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class RTMPStreamAnalyzer(StreamAnalyzer):
-    def __init__(self, url: str):
-        super().__init__(url)
+    """Analyzer for RTMP streams"""
+    
+    def __init__(self, url: str, ocr_enabled: bool = False):
+        super().__init__(url, ocr_enabled)
         self.amf_analyzer = AMFAnalyzer()
 
     def process_data_packet(self, packet: av.packet.Packet, video_time_base: float) -> Optional[TimingInfo]:

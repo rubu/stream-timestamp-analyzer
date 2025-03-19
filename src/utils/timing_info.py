@@ -7,6 +7,7 @@ class TimingSource(Enum):
     """Source of timing information"""
     AMF_ONFI = "amf_onfi"
     H264_SEI = "h264_sei"
+    BURNED_TIMECODE = "burned_timecode"  # OCR'd timecode from video frames
 
 @dataclass
 class TimingInfo:
@@ -57,6 +58,11 @@ class TimingInfo:
                 if 'n_frames' in payload:
                     wallclock += f"+{payload['n_frames']}f"
                 return f"[{self.source.value}] {timing_str} {wallclock}"
+
+        # For burned timecode, show the OCR'd time
+        if self.source == TimingSource.BURNED_TIMECODE and self.extra_data and 'timecode' in self.extra_data:
+            timecode = self.extra_data['timecode']
+            return f"[{self.source.value}] {timing_str} {timecode['text']}"
 
         # Default output with just timing info
         return f"[{self.source.value}] {timing_str}" 

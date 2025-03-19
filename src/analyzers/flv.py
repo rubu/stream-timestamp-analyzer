@@ -16,8 +16,8 @@ class FLVStreamAnalyzer(StreamAnalyzer):
     TAG_TYPE_VIDEO = 9
     TAG_TYPE_SCRIPT = 18
 
-    def __init__(self, url: str):
-        super().__init__(url)
+    def __init__(self, url: str, ocr_enabled: bool = False):
+        super().__init__(url, ocr_enabled)
         self.amf_analyzer = AMFAnalyzer()
 
     def process_data_packet(self, packet: av.packet.Packet, video_time_base: float) -> Optional[TimingInfo]:

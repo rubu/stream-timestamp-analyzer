@@ -2,28 +2,36 @@ import logging
 import sys
 import time
 from typing import List, Dict
+from multiprocessing import Queue
 from .stream_analyzer import create_analyzer, StreamAnalyzer
+import argparse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class StreamManager:
-    def __init__(self, debug: bool = False):
+    """Manage multiple stream analyzers"""
+    
+    def __init__(self):
         self.analyzers: Dict[str, StreamAnalyzer] = {}
-        self.queues = {}
-        self.debug = debug
+        self.queues: Dict[str, Queue] = {}
 
-    def add_stream(self, url: str):
+    def add_stream(self, url: str, ocr_enabled: bool = False):
         """Add a new stream to analyze"""
         try:
-            analyzer = create_analyzer(url)
-            analyzer.debug = self.debug  # Enable debugging if manager is in debug mode
+            # Create analyzer for the stream
+            analyzer = create_analyzer(url, ocr_enabled)
+            
+            # Start the analyzer and get its queue
             queue = analyzer.start()
+            
+            # Store analyzer and queue
             self.analyzers[url] = analyzer
             self.queues[url] = queue
-            logger.info(f"Started analyzing stream: {url}")
+            
+            logger.info(f"Added stream: {url}")
         except Exception as e:
-            logger.error(f"Failed to add stream {url}: {str(e)}")
+            logger.error(f"Failed to add stream {url}: {e}")
 
     def remove_stream(self, url: str):
         """Stop analyzing a stream"""
@@ -48,33 +56,30 @@ class StreamManager:
             time.sleep(0.1)  # Prevent CPU overload
 
     def stop_all(self):
-        """Stop all stream analyzers"""
-        for url in list(self.analyzers.keys()):
-            self.remove_stream(url)
+        """Stop all analyzers"""
+        for analyzer in self.analyzers.values():
+            analyzer.stop()
+        self.analyzers.clear()
+        self.queues.clear()
 
 def main():
-    # Check if debug mode is enabled
-    debug_mode = '--debug' in sys.argv
-    if debug_mode:
-        sys.argv.remove('--debug')
-    
-    manager = StreamManager(debug=debug_mode)
-    
-    # Add your stream URLs here
-    streams = sys.argv[1:]  # Take all command line arguments after the script name
-    
+    parser = argparse.ArgumentParser(description='Stream timestamp analyzer')
+    parser.add_argument('url', help='Stream URL to analyze')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--ocr', action='store_true', help='Enable OCR for burned-in timecodes')
+    args = parser.parse_args()
+
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    manager = StreamManager()
+    manager.add_stream(args.url, ocr_enabled=args.ocr)
+
     try:
-        # Add all streams
-        for stream_url in streams:
-            manager.add_stream(stream_url)
-        
-        # Process timing information
+        # Process timing information from all streams
         manager.process_timing_info()
-    
     except KeyboardInterrupt:
-        logger.info("Shutting down...")
-    finally:
         manager.stop_all()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main() 

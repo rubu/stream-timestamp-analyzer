@@ -7,11 +7,12 @@ from multiprocessing import Queue, get_context, Value
 from typing import Optional, Dict, Iterator, List
 from .nal_unit import NALUnit
 from .utils.timing_info import TimingInfo, TimingSource
+from .utils.timecode_ocr import TimecodeOCR
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def create_analyzer(url: str) -> 'StreamAnalyzer':
+def create_analyzer(url: str, ocr_enabled: bool = False) -> 'StreamAnalyzer':
     """Create appropriate analyzer based on stream URL"""
     # Import analyzers here to avoid circular imports
     from .analyzers.rtmp import RTMPStreamAnalyzer
@@ -19,20 +20,22 @@ def create_analyzer(url: str) -> 'StreamAnalyzer':
     from .analyzers.hls import HLSStreamAnalyzer
     
     if url.startswith('rtmp://'):
-        return RTMPStreamAnalyzer(url)
+        return RTMPStreamAnalyzer(url, ocr_enabled)
     elif url.endswith('.flv') or ('flv?' in url and url.startswith('http')):
-        return FLVStreamAnalyzer(url)
+        return FLVStreamAnalyzer(url, ocr_enabled)
     elif url.endswith('.m3u8') or ('m3u8?' in url and url.startswith('http')):
-        return HLSStreamAnalyzer(url)
+        return HLSStreamAnalyzer(url, ocr_enabled)
     else:
         raise ValueError(f"Unsupported stream URL format: {url}")
 
 class StreamAnalyzer(abc.ABC):
-    def __init__(self, url: str):
+    def __init__(self, url: str, ocr_enabled: bool = False):
         self.url = url
         self.process = None
         self.queue = None
         self.mp_context = get_context('spawn')
+        self.ocr_enabled = ocr_enabled
+        self.timecode_ocr = TimecodeOCR() if ocr_enabled else None  # Initialize OCR helper only if enabled
 
     @abc.abstractmethod
     def analyze_stream(self, queue: Queue):
@@ -120,7 +123,7 @@ class StreamAnalyzer(abc.ABC):
         current_time = datetime.now().timestamp()
         stream_time = float(packet.dts * packet.time_base)
 
-        # Process NAL units in packet
+        # Process NAL units in packet for SEI timing
         for nal_unit in self.extract_nals_from_packet(packet):
             if nal_unit.is_sei:
                 sei_data = nal_unit.parse_sei()
@@ -143,5 +146,31 @@ class StreamAnalyzer(abc.ABC):
                                 )
                                 results.append(timing_info)
                                 break
+
+        # Try to extract burned-in timecode using OCR if enabled
+        if self.ocr_enabled and self.timecode_ocr:
+            try:
+                # Decode the packet to get the frame
+                frames = packet.decode()
+                for frame in frames:
+                    # Convert PyAV frame to numpy array for OpenCV
+                    img = frame.to_ndarray(format='bgr24')
+                    
+                    # Extract timecode using OCR
+                    timecode = self.timecode_ocr.extract_timecode(img)
+                    if timecode:
+                        timing_info = TimingInfo(
+                            stream_url=self.url,
+                            timestamp=current_time,
+                            stream_time=stream_time,
+                            dts=packet.dts,
+                            pts=packet.pts,
+                            duration=packet.duration,
+                            source=TimingSource.BURNED_TIMECODE,
+                            extra_data={'timecode': timecode}
+                        )
+                        results.append(timing_info)
+            except Exception as e:
+                logger.error(f"Failed to process frame for OCR: {e}")
 
         return results
